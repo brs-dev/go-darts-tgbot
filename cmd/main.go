@@ -1,0 +1,47 @@
+package main
+
+import (
+	"go-darts-tgbot/internal/bot"
+	"go-darts-tgbot/internal/config"
+	database "go-darts-tgbot/internal/db"
+	"go-darts-tgbot/internal/logger"
+	"log/slog"
+	"os"
+	"os/signal"
+	"syscall"
+)
+
+func main() {
+	homedir, err := os.UserHomeDir()
+
+	if err != nil {
+		slog.Error("cannot to get homedir", slog.Any("err", err))
+		panic("fatal error")
+	}
+
+	loggerConfig := logger.Config{
+		LogDir:     homedir + "/.local/state/darts-tgbot",
+		LogFile:    "log",
+		MaxSize:    50,
+		MaxBackups: 5,
+		MaxAge:     30,
+		Compress:   true,
+	}
+
+	cleanup := logger.Init(loggerConfig)
+	defer cleanup()
+	config.LoadConfig()
+
+	d := database.InitDatabase()
+	if err := database.Connect(d); err != nil {
+		panic("fatal error")
+	}
+
+	h := bot.InitHandler()
+	bot.InitBot(h, d)
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	<-quit
+	slog.Info("shutdown programm")
+}
