@@ -4,6 +4,7 @@ import (
 	"go-darts-tgbot/internal/bot"
 	"go-darts-tgbot/internal/config"
 	database "go-darts-tgbot/internal/db"
+	web "go-darts-tgbot/internal/http"
 	"go-darts-tgbot/internal/logger"
 	"log/slog"
 	"os"
@@ -39,6 +40,8 @@ func main() {
 
 	h := bot.InitHandler()
 	bot.InitBot(h, d)
+
+	web.HttpLocal()
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
