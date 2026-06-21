@@ -2,7 +2,7 @@ package config
 
 import (
 	"github.com/joho/godotenv"
-	"log"
+	"log/slog"
 	"os"
 )
 
@@ -18,7 +18,7 @@ func LoadConfig() {
 	err := godotenv.Load(".env")
 
 	if err != nil {
-		log.Fatal(err)
+		slog.Warn("loading .env", slog.Any("err", err))
 	}
 
 	GlobalConfig = &Config{
