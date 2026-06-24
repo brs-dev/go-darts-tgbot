@@ -3,6 +3,7 @@ package bot
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"gopkg.in/telebot.v4/middleware"
@@ -18,28 +19,42 @@ var (
 	DatabaseInstance *database.Database
 )
 
-func registerHandler(h *Handler) {
+func registerHandler(g *Game) {
 	gameGroup := Bot.Group()
 
 	gameGroup.Use(func(next tele.HandlerFunc) tele.HandlerFunc {
 		return func(c tele.Context) error {
-			h.ResetIdleTimer(c)
+			g.ResetIdleTimer(c)
 
 			return next(c)
 		}
 	})
 
-	gameGroup.Handle("/game", h.Game)
-	gameGroup.Handle("\fbtn_exit", h.Exit)
-	gameGroup.Handle("\fbtn_back_main", h.Game)
-	gameGroup.Handle("\fbtn_play_with_bot", h.StartGameBot)
-	gameGroup.Handle("\fbtn_play_with_friend", h.StartGameFriend)
-	gameGroup.Handle("\fbtn_show_stats", h.Stats)
-	gameGroup.Handle("\fbtn_start_game_bot", h.GameBotStarted)
-	gameGroup.Handle("\fbtn_make_throw", h.NextTurn)
+	gameGroup.Use(func(next tele.HandlerFunc) tele.HandlerFunc {
+		return func(c tele.Context) error {
+			if g.GameStarted && g.Player1ID != c.Sender().ID {
+				slog.Debug(fmt.Sprintf(
+					"interrupting the user's action: %d; in chat %d",
+					c.Sender().ID,
+					c.Chat().ID,
+				))
+				return nil
+			}
+
+			return next(c)
+		}
+	})
+
+	gameGroup.Handle("/game", g.Game)
+	gameGroup.Handle("\fbtn_exit", g.Exit)
+	gameGroup.Handle("\fbtn_back_main", g.Game)
+	gameGroup.Handle("\fbtn_play_with_bot", g.StartGameBot)
+	gameGroup.Handle("\fbtn_show_stats", g.Stats)
+	gameGroup.Handle("\fbtn_start_game_bot", g.GameBotStarted)
+	gameGroup.Handle("\fbtn_make_throw", g.NextTurn)
 }
 
-func InitBot(h *Handler, databaseInstance *database.Database) {
+func InitBot(g *Game, databaseInstance *database.Database) {
 	go func() {
 		DatabaseInstance = databaseInstance
 
@@ -69,18 +84,9 @@ func InitBot(h *Handler, databaseInstance *database.Database) {
 						return nil
 					}
 
-					if c.Text() == "/game" && h.ChatID == 0 {
-						h.ChatID = c.Chat().ID
-					} else if c.Text() == "/game" && h.ChatID != 0 {
-						return nil
-					}
-
-					if h.GameStarted && h.Player1ID != c.Sender().ID {
-						slog.Debug(fmt.Sprintf(
-							"interrupting the user's action: %d; in chat %d",
-							c.Sender().ID,
-							c.Chat().ID,
-						))
+					if strings.HasPrefix(c.Text(), "/game") && g.ChatID == 0 {
+						g.ChatID = c.Chat().ID
+					} else if strings.HasPrefix(c.Text(), "/game") && g.ChatID != 0 {
 						return nil
 					}
 
@@ -88,7 +94,7 @@ func InitBot(h *Handler, databaseInstance *database.Database) {
 				}
 			})
 
-			registerHandler(h)
+			registerHandler(g)
 
 			slog.Info("bot is ready")
 			Bot.Start()

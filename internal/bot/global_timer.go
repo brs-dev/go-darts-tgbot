@@ -7,21 +7,21 @@ import (
 	tele "gopkg.in/telebot.v4"
 )
 
-func (h *Handler) ResetIdleTimer(c tele.Context) {
-	if h.IdleTimer != nil {
-		h.IdleTimer.Stop()
+func (g *Game) ResetIdleTimer(c tele.Context) {
+	if g.IdleTimer != nil {
+		g.IdleTimer.Stop()
 	}
 
-	h.IdleTimer = time.AfterFunc(120*time.Second, func() {
+	g.IdleTimer = time.AfterFunc(120*time.Second, func() {
 		slog.Info("exit game by global timeout")
 
-		h.Exit(c)
+		g.Exit(c)
 	})
 }
 
-func (h *Handler) StopIdleTimer() {
-	if h.IdleTimer != nil {
-		h.IdleTimer.Stop()
-		h.IdleTimer = nil
+func (g *Game) StopIdleTimer() {
+	if g.IdleTimer != nil {
+		g.IdleTimer.Stop()
+		g.IdleTimer = nil
 	}
 }

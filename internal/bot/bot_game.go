@@ -16,8 +16,8 @@ var (
 	ContinueGame = make(chan int, 1)
 )
 
-func (h *Handler) StartGameBot(c tele.Context) error {
-	h.RemovePrevMsg(c)
+func (g *Game) StartGameBot(c tele.Context) error {
+	g.RemovePrevMsg(c)
 
 	menu := &tele.ReplyMarkup{}
 	menu.Inline(
@@ -40,57 +40,72 @@ func (h *Handler) StartGameBot(c tele.Context) error {
 	msg, err := c.Bot().Send(c.Chat(), photo, menu, tele.ModeHTML)
 
 	if err == nil {
-		h.LastMessage = msg
+		g.LastMessage = msg
 	}
 
 	return err
 }
 
-func (h *Handler) GameBotLoop(c tele.Context) {
-	go func() {
-		slog.Info("game loop starts here")
+func (g *Game) GameBotLoop(c tele.Context, stop <-chan struct{}) {
+	slog.Info("game loop starts here")
 
-		h.mu.Lock()
-		h.GameChan <- "throw"
-		h.mu.Unlock()
+	g.mu.RLock()
+	steps := make([]Step, len(g.Queue.Steps))
+	copy(steps, g.Queue.Steps)
+	g.mu.RUnlock()
 
-		for i := range h.Queue.Steps {
-			pair := h.Queue.Steps[i]
-			players := []int64{pair.Player1ID, pair.Player2ID}
+	g.mu.Lock()
+	g.GameChan <- "throw"
+	g.mu.Unlock()
 
-			for _, playerID := range players {
-				isBot, err := isBot(c, playerID)
+	for i := range steps {
+		select {
+		case <-stop:
+			slog.Info("game loop stopped")
+			return
+		default:
+		}
 
-				if err != nil {
-					h.Exit(c)
-					return
-				}
+		pair := steps[i]
+		players := []int64{pair.Player1ID, pair.Player2ID}
 
-				h.Queue.CurrentPlayer = playerID
-				throwMessage := h.betweenThrowMessage(c, isBot)
+		for _, playerID := range players {
+			isBot, err := isBot(c, playerID)
 
-				select {
-				case continueGameStatus := <-ContinueGame:
-					if continueGameStatus > 0 {
-						if throwMessage == nil {
-							h.Exit(c)
-							return
-						}
+			if err != nil {
+				g.Exit(c)
+				return
+			}
 
-						h.RemovePrevMsg(c)
+			g.mu.Lock()
+			g.Queue.CurrentPlayer = playerID
+			g.mu.Unlock()
+
+			throwMessage := g.betweenThrowMessage(c, isBot)
+
+			select {
+			case <-stop:
+				return
+			case continueGameStatus := <-ContinueGame:
+				if continueGameStatus > 0 {
+					if throwMessage == nil {
+						g.Exit(c)
+						return
 					}
+
+					g.RemovePrevMsg(c)
 				}
 			}
 		}
+	}
 
-		slog.Info("game loop ends here")
+	slog.Info("game loop ends here")
 
-		h.GameResults(c)
-	}()
+	g.GameResults(c)
 }
 
-func (h *Handler) GameBotStarted(c tele.Context) error {
-	h.RemovePrevMsg(c)
+func (g *Game) GameBotStarted(c tele.Context) error {
+	g.RemovePrevMsg(c)
 
 	photo := &tele.Photo{
 		File:    tele.FromDisk("assets/game_bot_started.jpg"),
@@ -98,60 +113,61 @@ func (h *Handler) GameBotStarted(c tele.Context) error {
 	}
 
 	msg, err := c.Bot().Send(c.Chat(), photo, tele.ModeHTML)
-	h.LastMessage = msg
+	g.LastMessage = msg
 
 	if err != nil {
 		slog.Error("cannot to send message", slog.Any("err", err))
-		return h.Exit(c)
+		return g.Exit(c)
 	}
 
 	time.Sleep(5 * time.Second)
 
-	h.RemovePrevMsg(c)
+	g.RemovePrevMsg(c)
 
-	h.GameChan = make(chan string, 1)
+	g.GameChan = make(chan string, 1)
 	slog.Info("game channel created")
 
-	h.GameBotLoop(c)
+	g.StopChan = make(chan struct{})
+	go g.GameBotLoop(c, g.StopChan)
 
 	return nil
 }
 
-func (h *Handler) GameResults(c tele.Context) error {
+func (g *Game) GameResults(c tele.Context) error {
 	slog.Info("game results called")
 
 	var message string
 	var filepath string
 
-	playerName1 := h.GetUserName(c, h.Player1ID)
-	playerName2 := h.GetUserName(c, h.Player2ID)
+	playerName1 := g.GetUserName(c, g.Player1ID)
+	playerName2 := g.GetUserName(c, g.Player2ID)
 
-	plurPlayerScore := u.PluralizePoints(h.Score.PlayerValue)
-	plurBotScore := u.PluralizePoints(h.Score.BotValue)
+	plurPlayerScore := u.PluralizePoints(g.Score.PlayerValue)
+	plurBotScore := u.PluralizePoints(g.Score.BotValue)
 
-	if h.Score.PlayerValue > h.Score.BotValue {
+	if g.Score.PlayerValue > g.Score.BotValue {
 		filepath = "assets/player_won.jpg"
 
 		message = fmt.Sprintf(
 			Msg.GameResult,
 			playerName1,
 			playerName1,
-			h.Score.PlayerValue,
+			g.Score.PlayerValue,
 			plurPlayerScore,
 			playerName2,
-			h.Score.BotValue,
+			g.Score.BotValue,
 			plurBotScore,
 		)
-	} else if h.Score.PlayerValue == h.Score.BotValue {
+	} else if g.Score.PlayerValue == g.Score.BotValue {
 		filepath = "assets/friendship_won.jpg"
 
 		message = fmt.Sprintf(
 			Msg.FriendshipWon,
 			playerName1,
-			h.Score.PlayerValue,
+			g.Score.PlayerValue,
 			plurPlayerScore,
 			playerName2,
-			h.Score.BotValue,
+			g.Score.BotValue,
 			plurBotScore,
 		)
 	} else {
@@ -161,10 +177,10 @@ func (h *Handler) GameResults(c tele.Context) error {
 			Msg.GameResult,
 			playerName2,
 			playerName1,
-			h.Score.PlayerValue,
+			g.Score.PlayerValue,
 			plurPlayerScore,
 			playerName2,
-			h.Score.BotValue,
+			g.Score.BotValue,
 			plurBotScore,
 		)
 	}
@@ -181,13 +197,13 @@ func (h *Handler) GameResults(c tele.Context) error {
 		Caption: message,
 	}
 
-	h.ResetQueue()
-	h.EndGame()
+	g.ResetQueue()
+	g.EndGame()
 
 	msg, err := c.Bot().Send(c.Chat(), photo, menu, tele.ModeHTML)
 
 	if err == nil {
-		h.LastMessage = msg
+		g.LastMessage = msg
 	}
 
 	return err
@@ -206,7 +222,7 @@ func isBot(c tele.Context, playerID int64) (bool, error) {
 	return isBot, nil
 }
 
-func (h *Handler) getVideoStruct(score int, caption string) *tele.Video {
+func (g *Game) getVideoStruct(score int, caption string) *tele.Video {
 	var video *tele.Video
 	var filepath string
 
@@ -235,12 +251,12 @@ func (h *Handler) getVideoStruct(score int, caption string) *tele.Video {
 	return video
 }
 
-func (h *Handler) betweenThrowMessage(c tele.Context, isBot bool) *tele.Message {
-	if <-h.GameChan == "throw" {
-		msg, _ := h.ThrowHandler(c)
+func (g *Game) betweenThrowMessage(c tele.Context, isBot bool) *tele.Message {
+	if <-g.GameChan == "throw" {
+		msg, _ := g.ThrowHandler(c)
 		time.Sleep(7 * time.Second)
 
-		playerName := h.GetUserName(c, h.Queue.CurrentPlayer)
+		playerName := g.GetUserName(c, g.Queue.CurrentPlayer)
 		score := msg.Dice.Value
 		pluralized := u.PluralizePoints(score)
 		message := fmt.Sprintf(Msg.ThrowResultDesc, playerName, score, pluralized)
@@ -250,7 +266,7 @@ func (h *Handler) betweenThrowMessage(c tele.Context, isBot bool) *tele.Message 
 		}
 
 		if isBot {
-			h.Score.BotValue += score
+			g.Score.BotValue += score
 
 			menu := &tele.ReplyMarkup{}
 			menu.Inline(
@@ -264,7 +280,7 @@ func (h *Handler) betweenThrowMessage(c tele.Context, isBot bool) *tele.Message 
 
 			msg, err := c.Bot().Send(
 				c.Chat(),
-				h.getVideoStruct(score, message),
+				g.getVideoStruct(score, message),
 				menu,
 				tele.ModeHTML,
 			)
@@ -275,19 +291,19 @@ func (h *Handler) betweenThrowMessage(c tele.Context, isBot bool) *tele.Message 
 
 			slog.Info(
 				"making a throw by bot",
-				slog.Int("val", h.Score.BotValue),
-				slog.Int64("id", h.Queue.CurrentPlayer),
+				slog.Int("val", g.Score.BotValue),
+				slog.Int64("id", g.Queue.CurrentPlayer),
 			)
 
-			h.LastMessage = msg
+			g.LastMessage = msg
 
 			return msg
 		} else {
-			h.Score.PlayerValue += score
+			g.Score.PlayerValue += score
 
 			DatabaseInstance.IncrementUserScore(database.IncUserScoreParams{
 				Ctx:    context.Background(),
-				UserID: h.Score.PlayerID,
+				UserID: g.Score.PlayerID,
 				Points: score,
 			})
 
@@ -299,7 +315,7 @@ func (h *Handler) betweenThrowMessage(c tele.Context, isBot bool) *tele.Message 
 
 			msg, err := c.Bot().Send(
 				c.Chat(),
-				h.getVideoStruct(score, message),
+				g.getVideoStruct(score, message),
 				menu,
 				tele.ModeHTML,
 			)
@@ -311,11 +327,11 @@ func (h *Handler) betweenThrowMessage(c tele.Context, isBot bool) *tele.Message 
 
 			slog.Info(
 				"making a throw by player",
-				slog.Int("val", h.Score.PlayerValue),
-				slog.Int64("id", h.Queue.CurrentPlayer),
+				slog.Int("val", g.Score.PlayerValue),
+				slog.Int64("id", g.Queue.CurrentPlayer),
 			)
 
-			h.LastMessage = msg
+			g.LastMessage = msg
 
 			return msg
 		}

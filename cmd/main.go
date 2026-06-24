@@ -38,8 +38,8 @@ func main() {
 		panic("fatal error")
 	}
 
-	h := bot.InitHandler()
-	bot.InitBot(h, d)
+	g := bot.InitGame()
+	bot.InitBot(g, d)
 
 	web.HttpLocal()
 

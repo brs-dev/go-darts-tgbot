@@ -62,13 +62,13 @@ func getUserStruct(c tele.Context) CreateUsersParams {
 	}
 }
 
-func (h *Handler) Game(c tele.Context) error {
+func (g *Game) Game(c tele.Context) error {
 	slog.Info("main menu called")
 	slog.Info(fmt.Sprintf("main menu started by %d", c.Sender().ID))
 
 	botId := c.Bot().(*tele.Bot).Me.ID
-	h.StartGame(c.Sender().ID, botId)
-	h.RemovePrevMsg(c)
+	g.StartGame(c.Sender().ID, botId)
+	g.RemovePrevMsg(c)
 
 	userParams := getUserStruct(c)
 	handlerCreateUser(DatabaseInstance, userParams)
@@ -98,7 +98,7 @@ func (h *Handler) Game(c tele.Context) error {
 		msg, err := c.Bot().Send(c.Chat(), video, menu, tele.ModeHTML)
 
 		if err == nil {
-			h.LastMessage = msg
+			g.LastMessage = msg
 		}
 
 		return err
@@ -113,10 +113,10 @@ func (h *Handler) Game(c tele.Context) error {
 
 	if err != nil {
 		slog.Warn("cannot to send video", slog.Any("err", err))
-		h.Exit(c)
+		g.Exit(c)
 		return err
 	} else {
-		h.LastMessage = msg
+		g.LastMessage = msg
 	}
 
 	if msg.Video != nil {
@@ -126,17 +126,27 @@ func (h *Handler) Game(c tele.Context) error {
 	return nil
 }
 
-func (h *Handler) Exit(c tele.Context) error {
+func (g *Game) Exit(c tele.Context) error {
 	if err := c.Respond(&tele.CallbackResponse{
 		Text: Msg.ExitDesc,
 	}); err != nil {
 		slog.Warn("cannot to send response", slog.Any("err", err))
 	}
 
-	h.RemovePrevMsg(c)
-	h.ResetQueue()
-	h.EndGame()
-	h.StopIdleTimer()
+	if g.StopChan != nil {
+		close(g.StopChan)
+		g.StopChan = nil
+	}
+
+	if g.GameChan != nil {
+		close(g.GameChan)
+		g.GameChan = nil
+	}
+
+	g.RemovePrevMsg(c)
+	g.ResetQueue()
+	g.EndGame()
+	g.StopIdleTimer()
 
 	slog.Info("exit game")
 	return nil

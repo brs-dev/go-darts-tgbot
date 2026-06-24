@@ -8,13 +8,13 @@ import (
 	tele "gopkg.in/telebot.v4"
 )
 
-func (h *Handler) Stats(c tele.Context) error {
-	h.RemovePrevMsg(c)
+func (g *Game) Stats(c tele.Context) error {
+	g.RemovePrevMsg(c)
 
 	users, err := DatabaseInstance.GetAllUsers(context.Background())
 
 	if err != nil {
-		h.Exit(c)
+		g.Exit(c)
 		return err
 	}
 
@@ -50,7 +50,7 @@ func (h *Handler) Stats(c tele.Context) error {
 	msg, err := c.Bot().Send(c.Chat(), photo, menu, tele.ModeHTML)
 
 	if err == nil {
-		h.LastMessage = msg
+		g.LastMessage = msg
 	}
 
 	return err

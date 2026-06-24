@@ -6,24 +6,24 @@ import (
 	tele "gopkg.in/telebot.v4"
 )
 
-func (h *Handler) NextTurn(c tele.Context) error {
-	h.mu.Lock()
-	h.GameChan <- "throw"
-	h.mu.Unlock()
+func (g *Game) NextTurn(c tele.Context) error {
+	g.mu.Lock()
+	g.GameChan <- "throw"
+	g.mu.Unlock()
 
 	ContinueGame <- 1
 
 	return nil
 }
 
-func (h *Handler) ThrowHandler(c tele.Context) (*tele.Message, error) {
+func (g *Game) ThrowHandler(c tele.Context) (*tele.Message, error) {
 	msg, err := c.Bot().Send(c.Chat(), &tele.Dice{
 		Type: tele.Dart.Type,
 	})
 
 	if err != nil {
 		slog.Error("failed to send dart", slog.Any("err", err))
-		return nil, h.Exit(c)
+		return nil, g.Exit(c)
 	}
 
 	return msg, nil
